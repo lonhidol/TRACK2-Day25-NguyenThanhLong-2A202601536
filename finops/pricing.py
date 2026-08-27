@@ -60,12 +60,36 @@ def break_even_utilization(discount_frac: float) -> float:
     return max(0.0, min(1.0, 1.0 - discount_frac))
 
 
-def recommend_tier(hours_per_day: float, interruptible: bool, reserved_discount: float = 0.45) -> str:
-    """Pick a purchasing tier from a workload's duty cycle + interruptibility.
+def cache_is_worth_it(
+    avg_cache_reads: float,
+    write_cost_per_m: float,
+    read_discount: float = 0.10,
+    price_in_per_m: float = 3.00,
+) -> bool:
+    """Cache only saves money when total savings from reads > initial write cost.
 
-    DOCUMENTED simple policy (instructor extension point — swap in your own):
+    Break-even reads = write_cost / (price_in * (1 - read_discount)).
+    For example, with standard 90% read discount: saving per read is 0.9 * price_in.
+    """
+    saving_per_read = price_in_per_m * (1.0 - read_discount)
+    if saving_per_read <= 0:
+        return False
+    break_even_reads = write_cost_per_m / saving_per_read
+    return avg_cache_reads >= break_even_reads
+
+
+def recommend_tier(
+    hours_per_day: float,
+    interruptible: bool,
+    reserved_discount: float = 0.45,
+    gpu_type: str | None = None,
+    job_days: int | None = None,
+) -> str:
+    """Pick a purchasing tier from a workload's duty cycle, interruptibility, and job duration.
+
+    DOCUMENTED policy with multi-factor weighting:
       - interruptible & not 24/7  -> 'spot'      (checkpoint and ride the discount)
-      - duty cycle >= break-even  -> 'reserved'  (steady, high utilization)
+      - duty cycle >= break-even  -> 'reserved'  (steady, high utilization >= 55%)
       - otherwise                 -> 'on_demand' (spiky / low duty)
     """
     duty = max(0.0, hours_per_day) / 24.0
